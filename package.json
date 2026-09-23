@@ -1,0 +1,11 @@
+{
+  "name": "meera-voice-telegram-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Telegram bot: DM a topic, get a LinkedIn/newsletter draft in Meera Pillai's voice (via Gemini), auto-posted to the Skinstinct channel.",
+  "type": "commonjs",
+  "scripts": {
+    "set-webhook": "node scripts/set-webhook.js",
+    "get-webhook-info": "node scripts/webhook-info.js"
+  }
+}

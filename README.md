@@ -1,9 +1,9 @@
 # Meera Pillai Voice — Telegram Automation
 
-DM the bot a topic → it drafts a LinkedIn post in Meera Pillai's voice
-(via Gemini, using `lib/voice-skill.js` + `lib/corpus.js` as the style
-reference) → it posts the draft straight to the Skinstinct Telegram
-channel, and confirms back to you.
+Drop a raw note into the capture channel (`-1004403413050`) → the bot
+drafts a LinkedIn post in Meera Pillai's voice (via Gemini, using
+`lib/voice-skill.js` + `lib/corpus.js` as the style reference) → the
+finished draft is posted back into that same channel.
 
 ## How it works
 
@@ -63,29 +63,30 @@ Verify it took:
 npm run get-webhook-info
 ```
 
-### 4. Find your Telegram user ID (to lock ALLOWED_USER_IDS down)
+### 4. Add the bot to the capture channel
 
-Message the bot once with `ALLOWED_USER_IDS` left blank in Vercel, then
-check the Vercel function logs for `message.from.id`, or message
-`@userinfobot` on Telegram directly. Add that ID to `ALLOWED_USER_IDS` in
-Vercel and redeploy so only you can trigger generation.
+The bot must be a **member with post/read permission** (admin, if it's a
+broadcast channel rather than a group) of the chat behind
+`-1004403413050` — otherwise it never sees messages posted there, and
+`sendMessage` back to that chat will fail with a 403.
 
-### 5. Add the bot to the target channel
+### 5. (Optional) Restrict who can trigger generation
 
-The bot must be an **admin** (or at least a member with post permission)
-of the channel/group behind `-1004403413050`, otherwise `sendMessage` to
-that chat will fail with a 403.
+`ALLOWED_USER_IDS` only applies to messages that carry a `from.id` (i.e.
+a regular group/supergroup). Leave it blank while testing; if you want to
+lock it down later, find your numeric Telegram user ID via
+`@userinfobot`, add it to `ALLOWED_USER_IDS` in Vercel, and redeploy.
 
 ## Using it
 
-DM the bot (not the channel) with a topic, e.g.:
+Post a raw note/topic directly into the capture channel, e.g.:
 
 ```
 why label percentages for actives are meaningless without pH and delivery base
 ```
 
-It replies "Drafting...", generates the post, sends it to the channel,
-and confirms back to you with the final text.
+The bot reads it, generates the post, and replies in the same channel
+with the finished draft — no DM step, no separate command.
 
 ## Local dev
 

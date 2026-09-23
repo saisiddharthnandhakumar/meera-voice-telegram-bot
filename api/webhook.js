@@ -1,12 +1,7 @@
 const { generateDraft } = require("../lib/gemini");
 const { sendMessage } = require("../lib/telegram");
 
-const START_TEXT =
-  "Send me a topic or brief (e.g. \"reformulating for humid climates\" or " +
-  "\"why we don't publish clinical trial data yet\") and I'll draft a " +
-  "LinkedIn post in Meera's voice and post it to the Skinstinct channel.";
-
-function isAuthorized(userId) {
+function isAuthorizedUser(userId) {
   const allowList = (process.env.ALLOWED_USER_IDS || "")
     .split(",")
     .map((s) => s.trim())
@@ -30,50 +25,49 @@ module.exports = async (req, res) => {
     }
   }
 
-  // Always ack Telegram with 200 quickly-ish; we still await the work below
-  // since this is low-traffic personal use, but any error must not surface
-  // as a Telegram retry loop.
   try {
     const update = req.body || {};
-    const message = update.message;
+    // A regular group/supergroup delivers "message"; a broadcast channel
+    // delivers "channel_post" instead. Support both.
+    const post = update.message || update.channel_post;
 
-    if (!message || typeof message.text !== "string") {
+    if (!post || typeof post.text !== "string") {
       res.status(200).send("ok");
       return;
     }
 
-    const senderChatId = message.chat.id;
-    const senderId = message.from && message.from.id;
-    const text = message.text.trim();
+    const chatId = post.chat.id;
+    const targetChatId = process.env.TARGET_CHAT_ID;
+    const text = post.text.trim();
 
-    if (!isAuthorized(senderId)) {
+    // Only react inside the configured capture channel, and only to the
+    // note text itself (not commands, not the bot's own replies).
+    if (String(chatId) !== String(targetChatId)) {
       res.status(200).send("ok");
       return;
     }
-
-    if (text === "/start" || text === "/help") {
-      await sendMessage(senderChatId, START_TEXT);
+    if (text.startsWith("/")) {
       res.status(200).send("ok");
       return;
     }
-
-    await sendMessage(senderChatId, "Drafting...");
+    if (post.from && !isAuthorizedUser(post.from.id)) {
+      res.status(200).send("ok");
+      return;
+    }
 
     const draft = await generateDraft(text);
-
-    const targetChatId = process.env.TARGET_CHAT_ID;
-    await sendMessage(targetChatId, draft);
-    await sendMessage(senderChatId, "Posted to the channel:\n\n" + draft);
+    await sendMessage(chatId, draft);
 
     res.status(200).send("ok");
   } catch (err) {
     console.error(err);
     try {
       const update = req.body || {};
-      const senderChatId = update.message && update.message.chat.id;
-      if (senderChatId) {
+      const post = update.message || update.channel_post;
+      const chatId = post && post.chat.id;
+      if (chatId) {
         await sendMessage(
-          senderChatId,
+          chatId,
           "Something went wrong generating that draft: " + err.message
         );
       }

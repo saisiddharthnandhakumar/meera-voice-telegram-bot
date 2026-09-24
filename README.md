@@ -1,24 +1,43 @@
 # Meera Pillai Voice — Telegram Automation
 
-Drop a raw note into the capture channel (`-1004403413050`) → Gemini
-scores it against a 5-axis publishability rubric → if it clears the bar,
-Gemini drafts a LinkedIn post in Meera Pillai's voice (using
-`lib/voice-skill.js` + `lib/corpus.js` as the style reference) → the
-finished draft (or, if it didn't clear the bar, a rejection with
-feedback) is posted back into that same channel.
+Drop a raw note into the capture channel (`-1004403413050`) →
+
+1. Gemini scores it against a 5-axis publishability rubric. Below 6/10:
+   rejected with feedback, nothing else runs.
+2. Gemini extracts the core idea, industry, and 3–5 Google News search
+   queries from the note.
+3. Those queries are run against Google News RSS in parallel, results are
+   deduped, and a single Gemini call scores every candidate article for
+   genuine relevance (never just the first result).
+4. If (and only if) something clears the relevance bar, it's handed to
+   drafting as supporting context — the note is always the primary
+   source, never the news.
+5. Gemini drafts a LinkedIn post in Meera Pillai's voice (using
+   `lib/voice-skill.js` + `lib/corpus.js` as the style reference, plus the
+   note + core idea + optional news context).
+6. The finished draft — with a news-source verification block appended
+   if news was used — is posted back into that same channel.
 
 ## How it works
 
 - `api/webhook.js` — Vercel serverless function; Telegram calls this on
-  every message sent to the bot. Scores the note first, only drafts if
-  it passes.
+  every message. Orchestrates the pipeline above end to end.
 - `lib/scoring.js` — the publishability rubric (5 axes, 0–10, pass at 6)
   and `scoreNote()`, judging the raw note's substance, not its phrasing.
+- `lib/note-analysis.js` — `analyzeNote()` extracts the core idea,
+  industry, topics, and Google News search queries from a passing note.
+- `lib/google-news.js` — `fetchGoogleNews()` / `parseRSS()` (hand-rolled,
+  no dependency) pull and normalize Google News RSS results;
+  `rankNewsRelevance()` scores every candidate in one batched Gemini
+  call; `selectNews()` picks the best one above the relevance bar
+  (**7/10** — stricter than the note-scoring bar, since a weak match is
+  worse than none), preferring articles from the last 7 days.
 - `lib/voice-skill.js` — the Voice DNA / generation rules.
 - `lib/corpus.js` — the 15-piece source corpus, used as few-shot style
   reference.
-- `lib/gemini.js` — calls the Gemini API with the above as system
-  instruction to draft the post.
+- `lib/gemini.js` — `draftLinkedInPost()`, the final drafting call: takes
+  the note, core idea, and optional news article, returns the post text
+  only.
 - `lib/telegram.js` — thin wrapper around the Telegram Bot API.
 
 ### The scoring rubric
@@ -110,8 +129,10 @@ Post a raw note/topic directly into the capture channel, e.g.:
 why label percentages for actives are meaningless without pH and delivery base
 ```
 
-The bot reads it, generates the post, and replies in the same channel
-with the finished draft — no DM step, no separate command.
+The bot reads it, scores it, researches it, drafts the post, and replies
+in the same channel with the finished draft — no DM step, no separate
+command. No new env vars or API keys are needed for the news layer —
+Google News RSS is keyless and everything else reuses `GEMINI_API_KEY`.
 
 ## Local dev
 

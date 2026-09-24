@@ -1,5 +1,13 @@
-const { generateDraft } = require("../lib/gemini");
+const { draftLinkedInPost } = require("../lib/gemini");
 const { scoreNote, SCORE_THRESHOLD } = require("../lib/scoring");
+const { analyzeNote } = require("../lib/note-analysis");
+const {
+  fetchGoogleNews,
+  parseRSS,
+  dedupeByUrl,
+  rankNewsRelevance,
+  selectNews,
+} = require("../lib/google-news");
 const { sendMessage } = require("../lib/telegram");
 
 const AXIS_LABELS = {
@@ -15,6 +23,21 @@ function formatRejection(total, breakdown, feedback) {
     .map(([key, val]) => `${AXIS_LABELS[key]} ${val}/2`)
     .join(" · ");
   return `Score: ${total}/10 — not quite there yet.\n\n${line}\n\n${feedback}`;
+}
+
+function formatDraftMessage(draft, newsSelection) {
+  if (newsSelection.found) {
+    const a = newsSelection.article;
+    return (
+      `[DRAFT]\n\n${draft}\n\n---\n\n` +
+      `NEWS USED FOR CONTEXT\n\n${a.title}\n${a.source || "unknown source"}${a.published_at ? " · " + a.published_at : ""}\n\n${a.url}\n\n` +
+      `⚠ Check this before publishing – you are the author of this claim`
+    );
+  }
+  return (
+    `[DRAFT]\n\n${draft}\n\n` +
+    `No sufficiently relevant recent news was found, so this draft is based entirely on your original note and Voice Skill.`
+  );
 }
 
 function isAuthorizedUser(userId) {
@@ -72,6 +95,7 @@ module.exports = async (req, res) => {
     }
 
     const { total, breakdown, feedback } = await scoreNote(text);
+    console.log("note:", text, "score:", total);
 
     if (total < SCORE_THRESHOLD) {
       await sendMessage(chatId, formatRejection(total, breakdown, feedback));
@@ -79,8 +103,43 @@ module.exports = async (req, res) => {
       return;
     }
 
-    const draft = await generateDraft(text);
-    await sendMessage(chatId, draft);
+    const analysis = await analyzeNote(text);
+    console.log("core_idea:", analysis.core_idea, "queries:", analysis.search_queries);
+
+    let candidates = [];
+    try {
+      const results = await Promise.all(analysis.search_queries.map(fetchGoogleNews));
+      candidates = dedupeByUrl(
+        results.filter((r) => r.ok).flatMap((r) => parseRSS(r.xml))
+      );
+    } catch (err) {
+      console.error("news fetch failed:", err);
+    }
+    console.log("news candidates:", candidates.length);
+
+    let newsSelection = { found: false, reason: "No candidates retrieved" };
+    if (candidates.length > 0) {
+      try {
+        const ranked = await rankNewsRelevance(text, analysis.core_idea, candidates);
+        newsSelection = selectNews(ranked);
+      } catch (err) {
+        console.error("news ranking failed:", err);
+        newsSelection = { found: false, reason: "News ranking failed" };
+      }
+    }
+    console.log("news:", {
+      found: newsSelection.found,
+      title: newsSelection.article && newsSelection.article.title,
+    });
+
+    const draft = await draftLinkedInPost({
+      note: text,
+      coreIdea: analysis.core_idea,
+      newsArticle: newsSelection.found ? newsSelection.article : null,
+    });
+    console.log("draft length:", draft.length, "news used:", newsSelection.found);
+
+    await sendMessage(chatId, formatDraftMessage(draft, newsSelection));
 
     res.status(200).send("ok");
   } catch (err) {

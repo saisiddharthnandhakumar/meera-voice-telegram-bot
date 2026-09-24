@@ -1,5 +1,21 @@
 const { generateDraft } = require("../lib/gemini");
+const { scoreNote, SCORE_THRESHOLD } = require("../lib/scoring");
 const { sendMessage } = require("../lib/telegram");
+
+const AXIS_LABELS = {
+  specificity: "Specificity",
+  structural_fit: "Structural fit",
+  contrarian_value: "Contrarian value",
+  audience_relevance: "Audience relevance",
+  actionability: "Actionability",
+};
+
+function formatRejection(total, breakdown, feedback) {
+  const line = Object.entries(breakdown)
+    .map(([key, val]) => `${AXIS_LABELS[key]} ${val}/2`)
+    .join(" · ");
+  return `Score: ${total}/10 — not quite there yet.\n\n${line}\n\n${feedback}`;
+}
 
 function isAuthorizedUser(userId) {
   const allowList = (process.env.ALLOWED_USER_IDS || "")
@@ -51,6 +67,14 @@ module.exports = async (req, res) => {
       return;
     }
     if (post.from && !isAuthorizedUser(post.from.id)) {
+      res.status(200).send("ok");
+      return;
+    }
+
+    const { total, breakdown, feedback } = await scoreNote(text);
+
+    if (total < SCORE_THRESHOLD) {
+      await sendMessage(chatId, formatRejection(total, breakdown, feedback));
       res.status(200).send("ok");
       return;
     }

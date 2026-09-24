@@ -1,20 +1,45 @@
 # Meera Pillai Voice — Telegram Automation
 
-Drop a raw note into the capture channel (`-1004403413050`) → the bot
-drafts a LinkedIn post in Meera Pillai's voice (via Gemini, using
+Drop a raw note into the capture channel (`-1004403413050`) → Gemini
+scores it against a 5-axis publishability rubric → if it clears the bar,
+Gemini drafts a LinkedIn post in Meera Pillai's voice (using
 `lib/voice-skill.js` + `lib/corpus.js` as the style reference) → the
-finished draft is posted back into that same channel.
+finished draft (or, if it didn't clear the bar, a rejection with
+feedback) is posted back into that same channel.
 
 ## How it works
 
 - `api/webhook.js` — Vercel serverless function; Telegram calls this on
-  every message sent to the bot.
+  every message sent to the bot. Scores the note first, only drafts if
+  it passes.
+- `lib/scoring.js` — the publishability rubric (5 axes, 0–10, pass at 6)
+  and `scoreNote()`, judging the raw note's substance, not its phrasing.
 - `lib/voice-skill.js` — the Voice DNA / generation rules.
 - `lib/corpus.js` — the 15-piece source corpus, used as few-shot style
   reference.
 - `lib/gemini.js` — calls the Gemini API with the above as system
-  instruction.
+  instruction to draft the post.
 - `lib/telegram.js` — thin wrapper around the Telegram Bot API.
+
+### The scoring rubric
+
+Each note is scored 0–2 on five axes (10 total), pass at **6/10**:
+
+1. **Specificity & Evidence** — a real number, mechanism, or verifiable
+   fact, not just an opinion.
+2. **Structural/Narrative Fit** — enough material to fill one of her
+   three recurring shapes (misconception→mechanism→consequence→ask;
+   anecdote→decision→practice; data pattern→fix→result).
+3. **Contrarian/Non-Obvious Insight Value** — corrects a misconception or
+   surfaces something the industry doesn't say out loud.
+4. **Audience Relevance** — on-brand for Skinstinct / formulation science
+   / founder transparency.
+5. **Actionability Potential** — implies a concrete action a reader could
+   take, not just an observation.
+
+Below 6/10, the bot replies with the score, a per-axis breakdown, and
+specific feedback on what would strengthen the note — no draft is
+generated.
 
 ## One-time setup
 
@@ -40,7 +65,7 @@ Project → Settings → Environment Variables. Add all of these
 | `TELEGRAM_BOT_TOKEN` | your bot token from @BotFather |
 | `TARGET_CHAT_ID` | `-1004403413050` |
 | `GEMINI_API_KEY` | your Gemini API key |
-| `GEMINI_MODEL` | `gemini-2.5-flash` (or another Gemini model) |
+| `GEMINI_MODEL` | `gemini-flash-latest` (or another Gemini model) |
 | `TELEGRAM_WEBHOOK_SECRET` | any random string you invent |
 | `ALLOWED_USER_IDS` | your Telegram numeric user ID (see below) |
 
